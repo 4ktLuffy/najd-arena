@@ -57,8 +57,9 @@ class ArenaApp(App[None]):
         table.clear()
         for run in list_runs(Path.cwd()):
             report = run.get("report", {})
+            score = report.get("najd_score")
             table.add_row(run["run_id"], run["target"]["model"], run["status"],
-                          str(report.get("najd_score", "—")),
+                          "—" if score is None else str(score),
                           f"{report.get('coverage', 0):.0%}")
 
     async def on_button_pressed(self, event: Button.Pressed) -> None:

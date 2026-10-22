@@ -182,6 +182,9 @@ async def run_benchmark(
         **aggregate(grades),
         "coverage": sum(g.get("score") is not None for g in grades) / len(cases),
     }
+    if report["status"] != "complete":
+        # Like the hosted worker: no headline score over a partial denominator (coverage < 1).
+        report["najd_score"] = report["case_weighted_score"] = None
     write_json(run_dir / "report.json", report)
     manifest["status"] = report["status"]
     manifest["completed_at"] = datetime.now(UTC).isoformat()
