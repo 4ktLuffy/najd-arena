@@ -153,13 +153,17 @@ async def run_benchmark(
                     "source": case.source_id, "attempt": config.max_attempts, "status": "error",
                     "error": error, "created_at": datetime.now(UTC).isoformat()})
         else:
-            grade = deterministic_grade(case, response.content, fixture_result=fixture_result)
-            if grade is None and config.judge:
-                judge_model = ModelConfig("judge", config.judge.model, config.judge.api_base,
-                                          config.judge.api_key_env, 0.0, 512)
-                grade = await _judge(case, response.content, judge_model,
-                                     evidence=({"source_files": sources, "execution": fixture_result}
-                                               if case.fixture else None))
+            try:
+                grade = deterministic_grade(case, response.content, fixture_result=fixture_result)
+                if grade is None and config.judge:
+                    judge_model = ModelConfig("judge", config.judge.model, config.judge.api_base,
+                                              config.judge.api_key_env, 0.0, 512)
+                    grade = await _judge(case, response.content, judge_model,
+                                         evidence=({"source_files": sources, "execution": fixture_result}
+                                                   if case.fixture else None))
+            except Exception as exc:  # grader boundary: one bad case must not abort the run
+                grade = {"method": "grading-error", "score": None, "passed": None,
+                         "error": f"{type(exc).__name__}: {exc}"}
             _append(run_dir / "grades.jsonl", {
                 "case_id": case.id, "track": case.track, "source": case.source_id,
                 **(grade or {"method": "ungraded", "score": None, "passed": None}),

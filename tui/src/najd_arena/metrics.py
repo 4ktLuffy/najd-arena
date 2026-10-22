@@ -49,6 +49,8 @@ def _tool(case: BenchmarkCase, output: str) -> float:
         parsed = json_from_output(output)
     except (ValueError, TypeError, json.JSONDecodeError):
         return 0.0
+    if not isinstance(parsed, dict):
+        return 0.0
     expected = case.expected
     if case.source_id == "arabic-function-calling":
         name = parsed.get("functionName", parsed.get("name"))

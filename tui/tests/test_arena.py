@@ -39,6 +39,19 @@ def test_tool_call_grading() -> None:
     assert deterministic_grade(value, output)["score"] == 1
 
 
+@pytest.mark.parametrize("source", ["arabic-function-calling", "arabic-agent-eval", "paired-msa-saudi-tool-use"])
+@pytest.mark.parametrize("output", [
+    "5", '"x"', "true", "null", "[]", '[{"function":"f","arguments":{}}]', "see [1] for details",
+    "not json at all", "",
+])
+def test_tool_grading_scores_non_object_output_zero(source: str, output: str) -> None:
+    value = case(source, {
+        "functionName": "weather", "arguments": {}, "tool_calls": [], "action": "call_tool",
+        "tool_name": "weather", "missing_required_arguments": [], "gold_call": None,
+    })
+    assert deterministic_grade(value, output)["score"] == 0
+
+
 def test_open_answer_requires_judge() -> None:
     value = case("QCRI/IslamicFaithQA", {"answer": "يونس"})
     assert adapt(value).mode == "judge"
