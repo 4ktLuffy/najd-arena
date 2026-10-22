@@ -16,6 +16,8 @@ from .models import BenchmarkCase, ModelConfig, RunConfig
 from .providers import LiteLLMProvider
 
 Progress = Callable[[int, int, str], None]
+# Keep aligned with datasetRelease.protocol in web/lib/dataset-release.ts (checked by the release tests).
+PROTOCOL = "najd-prompt-v3"
 
 
 def _state_root(project_root: Path) -> Path:
@@ -88,7 +90,7 @@ async def run_benchmark(
         "api_base": config.model.api_base,
         "tracks": config.tracks,
         "sample": config.sample,
-        "protocol": "najd-prompt-v2-fixtures",
+        "protocol": PROTOCOL,
     }
     run_id = f"run-{digest(identity)[:12]}-{datetime.now(UTC).strftime('%Y%m%d%H%M%S')}"
     run_dir = _state_root(project_root) / "runs" / run_id
@@ -103,7 +105,7 @@ async def run_benchmark(
                    "api_base": config.model.api_base},
         "judge": ({"profile_id": config.judge.profile_id, "model": config.judge.model}
                   if config.judge else None),
-        "protocol": "najd-prompt-v2-fixtures", "canonical": config.sample is None and not config.tracks,
+        "protocol": PROTOCOL, "canonical": config.sample is None and not config.tracks,
         "selected_cases": len(cases),
     }
     write_json(run_dir / "manifest.json", manifest)

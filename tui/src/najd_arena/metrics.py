@@ -3,31 +3,71 @@ from __future__ import annotations
 import ast
 import json
 import re
+import unicodedata
 from statistics import mean
 from typing import Any
 
 from najd_benchmark.arabic_mmlu import grade as grade_arabic_mmlu
 
-from .adapters import adapt, json_from_output, normalize_token
+from .adapters import adapt, json_from_output, mcq_options, normalize_token, option_texts, strip_option_label
 from .models import BenchmarkCase
+
+CHOICE_METHOD = "exact-choice@2"
+_ARABIC_DIGITS = str.maketrans("٠١٢٣٤٥٦٧٨٩", "0123456789")
+
+
+def _text_key(value: Any) -> str:
+    """Normalise option text for equality; unlike normalize_token it keeps inner punctuation ("0.25" != "0.2")."""
+    text = unicodedata.normalize("NFKC", str(value)).translate(_ARABIC_DIGITS)
+    text = re.sub("[\u064b-\u065f\u0670\u0640]", "", text)
+    return re.sub(r"\s+", " ", text).strip(" .,;:!?\"'()[]*_`،؛").casefold()
+
+
+def _gold_position(expected: dict[str, Any], count: int) -> int | None:
+    """0-based position of the correct option.
+
+    answerKey is a letter (Latin or Arabic) or, in alghafa-native and dialectal-arabic-mmlu, a 0-based digit
+    string. answerIndex (humain-arapro) is 1-based.
+    """
+    key = expected.get("answerKey")
+    index = expected.get("answerIndex")
+    position: int | None = None
+    if isinstance(key, str):
+        token = normalize_token(key)
+        if len(token) == 1 and "a" <= token <= "z":
+            position = ord(token) - ord("a")
+        elif token.isdigit():
+            position = int(token)
+    elif key is None and isinstance(index, int) and not isinstance(index, bool):
+        position = index - 1
+    return position if position is not None and 0 <= position < count else None
 
 
 def _choice(case: BenchmarkCase, output: str) -> float:
     expected = case.expected
     wanted: Any = expected.get("answerKey", expected.get("answerIndex"))
-    candidate = output.strip().splitlines()[0] if output.strip() else ""
+    candidate: Any = output.strip().splitlines()[0] if output.strip() else ""
+    from_json = False
     try:
         parsed = json_from_output(output)
         if isinstance(parsed, dict):
             candidate = parsed.get("answerKey", parsed.get("answerIndex", candidate))
+            from_json = True
     except (ValueError, TypeError, json.JSONDecodeError):
         pass
-    if normalize_token(candidate) == normalize_token(wanted):
+    options = mcq_options(case)
+    position = _gold_position(expected, len(options)) if options else None
+    if options is None or position is None:
+        return float(normalize_token(candidate) == normalize_token(wanted))
+    if from_json and normalize_token(candidate) == normalize_token(wanted):
+        return 1.0  # {"answerKey": ...} / {"answerIndex": ...} echoing the stored key or index
+    token = normalize_token(candidate)
+    if len(token) == 1 and "a" <= token <= "z" and ord(token) - ord("a") == position:
         return 1.0
-    options = expected.get("options") or []
-    if isinstance(wanted, int) and 0 <= wanted < len(options):
-        return float(normalize_token(options[wanted]) in normalize_token(output))
-    return 0.0
+    # Option text, optionally preceded by its own letter. A different letter stays in the text and cannot match.
+    gold = _text_key(option_texts(options)[position])
+    # The whole output is also tried, for options whose own text spans several lines.
+    return float(any(_text_key(strip_option_label(str(text), position)) == gold for text in (candidate, output)))
 
 
 def _structured(case: BenchmarkCase, output: str) -> float:
@@ -129,6 +169,8 @@ def deterministic_grade(
         value = _mena(case, output)
     elif "answerKey" in case.expected or "answerIndex" in case.expected:
         value = _choice(case, output)
+        if mcq_options(case):
+            return {"method": CHOICE_METHOD, "score": round(value, 6), "passed": value == 1.0}
     else:
         value = _structured(case, output)
     return {"method": f"{mode}@1", "score": round(value, 6), "passed": value == 1.0}

@@ -53,6 +53,8 @@ def test_web_and_worker_release_agree():
     assert DATASET_VERSION in source
     assert DATASET_REVISION in source
     assert str(CASE_COUNT) in source
+    from najd_arena.engine import PROTOCOL
+    assert f'protocol: "{PROTOCOL}"' in source
 
 
 def test_fixture_artifacts_must_exist():

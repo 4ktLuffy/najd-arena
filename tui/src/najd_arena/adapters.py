@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import re
+import string
 from dataclasses import dataclass
 from typing import Any, Literal
 
@@ -12,6 +13,10 @@ from .models import BenchmarkCase
 GradeMode = Literal["exact", "tool", "ifeval", "mena", "judge"]
 
 MCQ_KEYS = {"answerKey", "answerIndex"}
+MCQ_LETTER_INSTRUCTION = "Return only the letter of the correct option, without explanation."
+OPTION_LETTERS = string.ascii_uppercase
+# Arabic letters for option positions 0-4, with the variants seen in stored option labels.
+ARABIC_OPTION_LETTERS = ("أاإآ", "ب", "ج", "د", "ه")
 TOOL_SOURCES = {"arabic-function-calling", "arabic-agent-eval", "paired-msa-saudi-tool-use"}
 JUDGE_SOURCES = {
     "QCRI/IslamicFaithQA", "arbml-arabic-rc", "arabicragb", "pico-saudi-v0.01",
@@ -43,6 +48,8 @@ def _instruction(case: BenchmarkCase) -> tuple[GradeMode, str]:
     if case.source_id in JUDGE_SOURCES or set(expected) == {"answer"}:
         return "judge", "Answer the question directly and faithfully in the requested language."
     if MCQ_KEYS & set(expected):
+        if mcq_options(case):
+            return "exact", MCQ_LETTER_INSTRUCTION
         return "exact", "Return only the answer option key or index, without explanation."
     if set(expected) & {"label", "Label", "dangerous", "safetyLabel", "topic", "hate"}:
         labels = json.dumps(expected_contract(case), ensure_ascii=False)
@@ -60,8 +67,49 @@ def adapt(case: BenchmarkCase) -> AdaptedCase:
     if case.system_prompt:
         system += "\n\n" + case.system_prompt
     messages.append({"role": "system", "content": system})
-    messages.append({"role": "user", "content": case.prompt})
+    user = case.prompt
+    options = mcq_options(case) if instruction == MCQ_LETTER_INSTRUCTION else None
+    if options:
+        texts = option_texts(options)
+        if not _options_listed(user, texts):
+            user += "\n\n" + "\n".join(f"{OPTION_LETTERS[i]}. {text}" for i, text in enumerate(texts))
+    messages.append({"role": "user", "content": user})
     return AdaptedCase(messages, mode, instruction)
+
+
+def mcq_options(case: BenchmarkCase) -> list[str] | None:
+    """The stored options of a multiple-choice case, or None when it has no usable options."""
+    options = case.expected.get("options") if MCQ_KEYS & set(case.expected) else None
+    if not isinstance(options, list) or not 0 < len(options) <= len(OPTION_LETTERS):
+        return None
+    return [str(option) for option in options]
+
+
+def strip_option_label(option: str, position: int) -> str:
+    """Remove a leading label that names this option's own position, e.g. "A. x", "(A) x", "أ) x"."""
+    letters = OPTION_LETTERS[position]
+    if position < len(ARABIC_OPTION_LETTERS):
+        letters += ARABIC_OPTION_LETTERS[position]
+    label = rf"(?:\(\s*[{letters}]\s*\)|[{letters}]\u0640?\s*[.):\-\u2013])"
+    stripped = re.sub(rf"^\s*{label}\s*", "", option, count=1, flags=re.IGNORECASE)
+    return stripped or option
+
+
+def option_texts(options: list[str]) -> list[str]:
+    return [strip_option_label(option, position) for position, option in enumerate(options)]
+
+
+def _squash(value: str) -> str:
+    return re.sub(r"\s+", " ", value).strip()
+
+
+def _options_listed(prompt: str, texts: list[str]) -> bool:
+    """True when the prompt already lists every option on its own line, so appending would repeat them."""
+    lines = [_squash(line) for line in prompt.splitlines()]
+    return all(
+        _squash(text) and any(_squash(strip_option_label(line, position)) == _squash(text) for line in lines)
+        for position, text in enumerate(texts)
+    )
 
 
 def expected_contract(case: BenchmarkCase) -> dict[str, Any]:

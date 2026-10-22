@@ -46,6 +46,8 @@ The first upstream organization syncs on GitHub or Hugging Face sign-in. Organiz
 
 The runtime pins the unified `2026.09.27.1` release: 6,089 cases across 25 tracks. It verifies the case checksum and preserves each run's dataset version/revision. ArabicMMLU scoring comes from the pinned benchmark package. Structured tasks use deterministic metrics; open-ended tasks require a configured judge.
 
+Multiple-choice cases other than ArabicMMLU show every stored option to the model as `A.`, `B.`, … in stored order (a label that already names the option's own position is removed first) and ask for the letter only. Grading derives the correct position from the case (a Latin or Arabic letter key, a 0-based digit-string key, or a 1-based `answerIndex`) and accepts that letter or the exact text of that option; other letters and partial text score zero. These runs carry protocol `najd-prompt-v3` and `exact-choice@2` grades. Multiple-choice scores from `najd-prompt-v2-fixtures` runs did not show these options and are not comparable.
+
 Only complete canonical runs enter the review queue. Organization-submitted publication requires organization-admin consent and at least one Najd-admin approval. Raw model outputs remain private to the organization and Najd reviewers.
 
 ## Historical M3 comparison
