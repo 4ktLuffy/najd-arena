@@ -85,19 +85,34 @@ def _ifeval(case: BenchmarkCase, output: str) -> float:
     return mean(checks) if checks else float(bool(output.strip()))
 
 
+_NUMERIC_OPTION = re.compile(r"[+-]?\d+(?:\.\d+)?")
+
+
+def _option_key(option: Any) -> int | float | str:
+    """Canonical key so that '3', 3 and '3.0' name the same survey option."""
+    text = str(option).strip()
+    if not _NUMERIC_OPTION.fullmatch(text):
+        return text
+    number = float(text)
+    return int(number) if number.is_integer() else number
+
+
 def _mena(case: BenchmarkCase, output: str) -> float:
     match = re.search(r"-?\d+(?:\.\d+)?", output)
     if not match:
         return 0.0
-    selected = str(int(float(match.group())))
-    by_option: dict[str, list[float]] = {}
+    try:
+        selected = int(float(match.group()))
+    except (OverflowError, ValueError):
+        return 0.0
+    by_option: dict[int | float | str, list[float]] = {}
     for raw in case.expected["surveyDistributions"].values():
         try:
             _, distribution = ast.literal_eval(raw)
         except (ValueError, SyntaxError):
             continue
         for option, percent in distribution.items():
-            by_option.setdefault(str(option), []).append(float(str(percent).rstrip("%")))
+            by_option.setdefault(_option_key(option), []).append(float(str(percent).rstrip("%")))
     probabilities = {key: mean(values) for key, values in by_option.items()}
     maximum = max(probabilities.values(), default=0)
     return probabilities.get(selected, 0) / maximum if maximum else 0.0

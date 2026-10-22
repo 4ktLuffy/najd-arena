@@ -51,6 +51,43 @@ def test_mena_distribution_score_is_normalized() -> None:
     assert deterministic_grade(value, "1")["score"] == 1
 
 
+def mena_case(*distributions: str) -> BenchmarkCase:
+    return case("mena-values", {"min": 1.0, "max": 4.0, "scale": "y", "surveyDistributions": {
+        f"Country{index}": text for index, text in enumerate(distributions)}})
+
+
+def test_mena_float_style_option_keys_match_integer_answer() -> None:
+    value = mena_case("(2.1, {'1.0': '10%', '2.0': '60%', '3.0': '30%'})")
+    assert deterministic_grade(value, "2")["score"] == 1
+    assert deterministic_grade(value, "3")["score"] == pytest.approx(0.5)
+    assert deterministic_grade(value, "2.0")["score"] == 1
+    assert deterministic_grade(value, "9")["score"] == 0
+
+
+def test_mena_option_key_styles_are_averaged_together() -> None:
+    value = mena_case("(2.0, {'2': '40%', '3': '60%'})", "(2.0, {2.0: '80%', 3.0: '20%'})",
+                      "(2.0, {'2.0': '60%', '3.0': '10%'})")
+    assert deterministic_grade(value, "2")["score"] == pytest.approx(1)
+    assert deterministic_grade(value, "3")["score"] == pytest.approx((90 / 3) / (180 / 3))
+
+
+def test_mena_non_numeric_option_keys_still_work() -> None:
+    value = mena_case("(1.0, {'agree': '70%', '1': '30%'})")
+    assert deterministic_grade(value, "1")["score"] == pytest.approx(30 / 70)
+    assert deterministic_grade(value, "agree")["score"] == 0
+
+
+def test_mena_without_usable_distribution_scores_zero() -> None:
+    value = mena_case("(No data for this question)")
+    assert deterministic_grade(value, "1")["score"] == 0
+
+
+def test_mena_huge_number_scores_zero_instead_of_raising() -> None:
+    value = mena_case("(2.0, {'1.0': '50%', '2.0': '50%'})")
+    assert deterministic_grade(value, "9" * 400)["score"] == 0
+    assert deterministic_grade(value, "-" + "9" * 400)["score"] == 0
+
+
 def test_macro_track_aggregation() -> None:
     report = aggregate([
         {"track": "large", "score": 1.0}, {"track": "large", "score": 1.0},
